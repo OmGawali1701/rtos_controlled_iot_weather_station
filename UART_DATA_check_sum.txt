@@ -1,0 +1,59 @@
+1-(STM32 - Transmitter)
+
+
+uint8_t crc8(const char *data, size_t len) {
+    uint8_t crc = 0x00;
+    for (size_t i = 0; i < len; i++) {
+        crc ^= data[i];  // XOR each byte with CRC
+        for (uint8_t j = 0; j < 8; j++) {
+            if (crc & 0x80) {
+                crc = (crc << 1) ^ 0x07;  // Polynomial: x^8 + x^2 + x + 1
+            } else {
+                crc <<= 1;
+            }
+        }
+    }
+    return crc;
+}
+
+
+
+2️- Modify Code to Append CRC-8
+
+// Create the message
+sprintf(buff, "Temperature=%.2f,Pressure=%.2f,Humidity=%.2f,Co2=%.2f,NH3=%.2f,Ethanol=%.2f,AQI=%.2f",
+        SD.Temperature, SD.Pressure, SD.Humidity, SD.Co2, SD.NH3, SD.Ethanol, SD.AQI);
+
+// Compute CRC-8 checksum
+uint8_t crc = crc8(buff, strlen(buff));
+
+// Append CRC-8 to the message
+char final_msg[128];
+sprintf(final_msg, "%s*%02X\r\n", buff, crc);  // *XX (XX is CRC in HEX)
+
+// Send via UART
+HAL_UART_Transmit(&huart5, (uint8_t *)final_msg, strlen(final_msg), 10);
+
+
+
+
+3- Verify CRC-8 on the Receiver Side (ESP32)
+
+bool verify_crc(char *data) {
+    char *crc_ptr = strrchr(data, '*');  // Find '*'
+    if (!crc_ptr) return false;
+
+    uint8_t received_crc = (uint8_t)strtol(crc_ptr + 1, NULL, 16);  // Convert HEX to int
+    *crc_ptr = '\0';  // Remove CRC from message
+
+    return (crc8(data, strlen(data)) == received_crc);  // Compare calculated and received CRC
+}
+
+// ESP32 UART Reception:
+if (uart_read_bytes(UART_NUM_2, buffer, BUF_SIZE, 100 / portTICK_PERIOD_MS) > 0) {
+    if (verify_crc(buffer)) {
+        ESP_LOGI(TAG, "Valid Data: %s", buffer);
+    } else {
+        ESP_LOGE(TAG, "Checksum Error!");
+    }
+}
