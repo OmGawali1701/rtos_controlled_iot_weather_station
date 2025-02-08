@@ -1,0 +1,77 @@
+/* Includes */
+#include "main.h"
+#include "cmsis_os.h"
+#include "i2c.h"
+#include "adc.h"
+#include "usart.h"
+#include "gpio.h"
+#include "bme280.h"
+
+/* Task Handles */
+TaskHandle_t SensorTaskHandle;
+TaskHandle_t DisplayTaskHandle;
+TaskHandle_t UARTTaskHandle;
+
+/* Sensor Data */
+float temperature, humidity, pressure;
+uint16_t mq135_value;
+
+/* Function Prototypes */
+void SensorTask(void *pvParameters);
+void DisplayTask(void *pvParameters);
+void UARTTask(void *pvParameters);
+
+int main(void) {
+    HAL_Init();
+    SystemClock_Config();
+    MX_GPIO_Init();
+    MX_I2C1_Init();
+    MX_ADC1_Init();
+    MX_USART1_UART_Init();
+
+    /* Create FreeRTOS tasks */
+    xTaskCreate(SensorTask, "SensorTask", 128, NULL, 2, &SensorTaskHandle);
+    xTaskCreate(DisplayTask, "DisplayTask", 128, NULL, 2, &DisplayTaskHandle);
+    xTaskCreate(UARTTask, "UARTTask", 128, NULL, 1, &UARTTaskHandle);
+    
+    /* Start scheduler */
+    vTaskStartScheduler();
+    
+    while (1) {}
+}
+
+/* Sensor Task */
+void SensorTask(void *pvParameters) {
+    struct bme280_dev bme;
+    bme280_init(&bme);
+    while (1) {
+        bme280_read_data(&bme, &temperature, &humidity, &pressure);
+        HAL_ADC_Start(&hadc1);
+        HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY);
+        mq135_value = HAL_ADC_GetValue(&hadc1);
+        HAL_ADC_Stop(&hadc1);
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+}
+
+/* Display Task */
+void DisplayTask(void *pvParameters) {
+    while (1) {
+        OLED_Clear();
+        OLED_Printf("Temp: %.2f C", temperature);
+        OLED_Printf("Hum: %.2f %%", humidity);
+        OLED_Printf("Pressure: %.2f hPa", pressure);
+        OLED_Printf("MQ135: %d", mq135_value);
+        vTaskDelay(pdMS_TO_TICKS(2000));
+    }
+}
+
+/* UART Task */
+void UARTTask(void *pvParameters) {
+    char buffer[100];
+    while (1) {
+        snprintf(buffer, sizeof(buffer), "T:%.2f H:%.2f P:%.2f MQ:%d\n", temperature, humidity, pressure, mq135_value);
+        HAL_UART_Transmit(&huart1, (uint8_t *)buffer, strlen(buffer), HAL_MAX_DELAY);
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+}
