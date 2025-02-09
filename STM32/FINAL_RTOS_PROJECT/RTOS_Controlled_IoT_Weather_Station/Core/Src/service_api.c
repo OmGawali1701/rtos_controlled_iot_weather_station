@@ -9,6 +9,7 @@
 #include "semphr.h"
 #include "SEGGER_SYSVIEW.h"
 #include "struct.h"
+#include "string.h"
 
 #define DEBUG 1
 
@@ -20,7 +21,7 @@ extern Sensordata_t SensorData;
 // 🔹 **Service API for UART Transmission**
 void UART_Transmit_Service( uint8_t *data, uint16_t len)
 {
-    if (HAL_UART_Transmit_DMA(&huart5, data, len) != HAL_OK)
+    if (HAL_UART_Transmit(&huart5, data, len, 10) != HAL_OK)
 
     {
         SEGGER_SYSVIEW_PrintfHost("UART Transmission Failed");
@@ -33,32 +34,48 @@ void UART_Transmit_Service( uint8_t *data, uint16_t len)
 // 🔹 **Service API for UART Reception**
 uint8_t UART_Receive_Service(uint8_t *rxBuffer, uint16_t len)
 {
-    if (HAL_UART_Receive(&huart5, rxBuffer, len, 1000) == HAL_OK)
+    for (uint8_t attempt = 0; attempt < 3; attempt++)  // Retry up to 3 times
     {
-        uint8_t received_crc = rxBuffer[len - 1]; // Last byte is CRC
-        uint8_t computed_crc = Calculate_CRC8(rxBuffer, len - 1);
-
-        if (received_crc == computed_crc)
+        // Receive Data from ESP32
+        if (HAL_UART_Receive(&huart5, rxBuffer, len, 50) == HAL_OK)
         {
-            SEGGER_SYSVIEW_PrintfHost("CRC Matched: Valid Data");
-            return 1; // Success
+            SEGGER_SYSVIEW_PrintfHost("Data Received from ESP32");
+
+            // Send "ACK" to ESP32
+            const char *ackMsg = "ACK\n";
+            HAL_UART_Transmit(&huart5, (uint8_t *)ackMsg, strlen(ackMsg), 50);
+
+            // Wait for "ACK" Confirmation from ESP32 (Max 100ms timeout)
+            uint8_t ackBuffer[4] = {0};
+            if (HAL_UART_Receive(&huart5, ackBuffer, 3, 100) == HAL_OK)
+            {
+                ackBuffer[3] = '\0';  // Null-terminate for safety
+                if (strcmp((char *)ackBuffer, "ACK") == 0)
+                {
+                    SEGGER_SYSVIEW_PrintfHost("ESP32 ACK Received: Sending Next Data");
+                    return 1; // Success, move to next data
+                }
+            }
+
+            SEGGER_SYSVIEW_PrintfHost("ESP32 ACK Not Received: Retrying...");
         }
         else
         {
-            SEGGER_SYSVIEW_PrintfHost("CRC Mismatch: Data Corrupted");
-            return 0; // CRC Failed
+            SEGGER_SYSVIEW_PrintfHost("UART Receive Failed: Retrying...");
         }
     }
-    SEGGER_SYSVIEW_PrintfHost("ESP32 Acknowledgment Failed");
-    return 0; // Failure
+
+    SEGGER_SYSVIEW_PrintfHost("Failed to Receive ACK After 3 Attempts");
+    return 0; // Final Failure
 }
+
 
 
 // 🔹 **Service API for ADC Read**
 float Read_ADC_Value(ADC_HandleTypeDef *hadc)
 {
     volatile uint32_t adcSum = 0;
-    const uint8_t numSamples = 10;
+    const uint8_t numSamples = 5;
 
     for (uint8_t i = 0; i < numSamples; i++)
     {

@@ -49,7 +49,6 @@
 /* USER CODE BEGIN PD */
 #define DEBUG 1
 
-#define ADC_READINGS 5
 #define CRC8_POLYNOMIAL 0x07  // Standard SMBus CRC-8
 #define CRC8_INIT 0xFF        // Initial CRC value
 #define RL 10.0  // Load resistor in kΩ
@@ -80,8 +79,6 @@ ADC_HandleTypeDef hadc1;
 I2C_HandleTypeDef hi2c1;
 
 UART_HandleTypeDef huart5;
-DMA_HandleTypeDef hdma_uart5_rx;
-DMA_HandleTypeDef hdma_uart5_tx;
 
 /* USER CODE BEGIN PV */
 
@@ -104,7 +101,6 @@ char uartBuff[100];
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
-static void MX_DMA_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_UART5_Init(void);
@@ -158,7 +154,6 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  MX_DMA_Init();
   MX_ADC1_Init();
   MX_I2C1_Init();
   MX_UART5_Init();
@@ -358,25 +353,6 @@ static void MX_UART5_Init(void)
 }
 
 /**
-  * Enable DMA controller clock
-  */
-static void MX_DMA_Init(void)
-{
-
-  /* DMA controller clock enable */
-  __HAL_RCC_DMA1_CLK_ENABLE();
-
-  /* DMA interrupt init */
-  /* DMA1_Stream0_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Stream0_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(DMA1_Stream0_IRQn);
-  /* DMA1_Stream7_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Stream7_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(DMA1_Stream7_IRQn);
-
-}
-
-/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -433,7 +409,7 @@ void Task_SensorRead(void *pvParameters)
         SD.mq135_voltage = ((SD.ADC_Value * 5.0) / 4095.0);
         SD.Rs = ((5.0 - SD.mq135_voltage) / SD.mq135_voltage) * RL;
 
-        SD.Co2     = calculate_ppm(SD.Rs, R0_CO2, A_CO2, B_CO2);
+        SD.Co2     = 10*(calculate_ppm(SD.Rs, R0_CO2, A_CO2, B_CO2));
         SD.NH3     = calculate_ppm(SD.Rs, R0_NH3, A_NH3, B_NH3);
         SD.Ethanol = calculate_ppm(SD.Rs, R0_Ethanol, A_Ethanol, B_Ethanol);
         SD.AQI = ((SD.Co2 / 10) * 0.5) + ((SD.NH3 * 100) * 0.25) + ((SD.Ethanol * 100) * 0.25);
@@ -472,7 +448,7 @@ void Task_DisplayUpdate(void *pvParameters)
         {
             // Send button press event to ESP32
             char displayBuff[20];
-            snprintf(displayBuff, sizeof(displayBuff), "Button_Pressed:%d", buttonPressed);
+            snprintf(displayBuff, sizeof(displayBuff), "PAGE=%d", buttonPressed);
             UART_Transmit_Service((uint8_t *)displayBuff, strlen(displayBuff));
 
 	#ifdef DEBUG
@@ -542,7 +518,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
         if (HAL_GetTick() - lastPressTime > 10)  // Debounce check
         {
             buttonPressed++;
-            if (buttonPressed > 5)
+            if (buttonPressed > 3)
             {
             	buttonPressed = 1;
             }
