@@ -1,5 +1,5 @@
 ../Core/Src/service_api.c:22:6:UART_Transmit_Service	16	static
 ../Core/Src/service_api.c:35:9:UART_Receive_Service	32	static
-../Core/Src/service_api.c:75:7:Read_ADC_Value	24	static
-../Core/Src/service_api.c:96:6:Write_SensorData	24	static
-../Core/Src/service_api.c:104:6:Read_SensorData	24	static
+../Core/Src/service_api.c:77:7:Read_ADC_Value	24	static
+../Core/Src/service_api.c:98:6:Write_SensorData	24	static
+../Core/Src/service_api.c:106:6:Read_SensorData	24	static

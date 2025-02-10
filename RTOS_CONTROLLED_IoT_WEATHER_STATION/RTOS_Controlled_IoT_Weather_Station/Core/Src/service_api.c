@@ -11,7 +11,7 @@
 #include "struct.h"
 #include "string.h"
 
-#define DEBUG 1
+#define DEBUG
 
 extern UART_HandleTypeDef huart5;
 
@@ -42,7 +42,7 @@ uint8_t UART_Receive_Service(uint8_t *rxBuffer, uint16_t len)
             SEGGER_SYSVIEW_PrintfHost("Data Received from ESP32");
 
             // Send "ACK" to ESP32
-            const char *ackMsg = "ACK\n";
+            const char *ackMsg = "ACK";
             HAL_UART_Transmit(&huart5, (uint8_t *)ackMsg, strlen(ackMsg), HAL_MAX_DELAY);
 
             // Wait for "ACK" Confirmation from ESP32 (Max 100ms timeout)
@@ -57,15 +57,17 @@ uint8_t UART_Receive_Service(uint8_t *rxBuffer, uint16_t len)
                 }
             }
 
-            SEGGER_SYSVIEW_PrintfHost("ESP32 ACK Not Received: Retrying...");
+           // SEGGER_SYSVIEW_PrintfHost("ESP32 ACK Not Received: Retrying...");
         }
         else
         {
-            SEGGER_SYSVIEW_PrintfHost("UART Receive Failed: Retrying...");
+            //SEGGER_SYSVIEW_PrintfHost("UART Transmitted Successfully");
         }
     }
 
-    SEGGER_SYSVIEW_PrintfHost("Failed to Receive ACK After 3 Attempts");
+    //SEGGER_SYSVIEW_PrintfHost("Failed to Receive ACK After 3 Attempts");
+    SEGGER_SYSVIEW_PrintfHost("UART Transmitted Successfully");
+
     return 0; // Final Failure
 }
 

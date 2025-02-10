@@ -1,6 +1,4 @@
-/* USER CODE BEGIN Header */
-/**
-  ******************************************************************************
+/********************************************************************************
   * @file           : main.c
   * @brief          : Main program body
   ******************************************************************************
@@ -47,12 +45,12 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define DEBUG 1
+#define DEBUG
 
 #define ADC_READINGS 5
 #define CRC8_POLYNOMIAL 0x07  // Standard SMBus CRC-8
 #define CRC8_INIT 0xFF        // Initial CRC value
-#define RL 10.0  // Load resistor in kΩ
+#define RL 10.0  // Load resistor in kÎ©
 
 // CO2 Constants
 #define A_CO2 116.6020682
@@ -491,7 +489,7 @@ void Task_UARTSend(void *pvParameters)
 
         UART_Transmit_Service((uint8_t *)uartBuff, strlen(uartBuff));
 
-        uint8_t rxBuffer[20];
+        uint8_t rxBuffer[4];
         if (!UART_Receive_Service(rxBuffer, sizeof(rxBuffer)))
         {
             SEGGER_SYSVIEW_PrintfHost("Retrying UART Transmission...");
