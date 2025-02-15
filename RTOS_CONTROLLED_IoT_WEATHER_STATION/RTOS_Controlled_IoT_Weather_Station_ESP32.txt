@@ -1,0 +1,345 @@
+#include <stdint.h>
+#include <SPI.h>
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include "esp_wifi.h"
+
+
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_MOSI   23  
+#define OLED_CLK    18  
+#define OLED_DC     16  
+#define OLED_CS      5  
+#define OLED_RESET  17  
+
+#define CRC8_POLYNOMIAL 0x07  
+#define CRC8_INIT 0x00      
+
+#define ENABLE_MAC_FILTERING 1
+
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, OLED_MOSI, OLED_CLK, OLED_DC, OLED_RESET, OLED_CS);
+
+#if ENABLE_MAC_FILTERING
+// Wi-Fi Credentials (MAC-Restricted)
+const char* ssid = "acts";
+const char* password = "";
+const uint8_t allowedMAC[] = {0xF4, 0x96, 0x34, 0x9D, 0xE5, 0xA5};
+#endif
+
+#if !ENABLE_MAC_FILTERING
+const char* ssid = "infonet B-3";
+const char* password = "rahul@b3";
+#endif
+
+// ThingSpeak Configuration
+const char* server = "http://api.thingspeak.com/update";
+const char* apiKey = "J1SBHRHOQADAMPPR";/*"J1SBHRHOQADAMPPR"; *//* "7RCOKAQJTAZI3L99";*/
+
+// UART Configuration
+#define RX_PIN 3    
+#define TX_PIN 1    
+#define BAUD_RATE 115200
+
+#define TEMP_THRESHOLD 30
+#define HUMIDITY_THRESHOLD 42
+#define CO2_THRESHOLD 500
+#define AQI_THRESHOLD 12
+
+// Sensor Data Structure
+struct SensorData {
+    float Temperature;
+    float Pressure;
+    float Humidity;
+    float Co2;
+    float NH3;
+    float Ethanol;
+    float AQI;
+    uint8_t CRC;
+};
+
+// Function Prototypes
+bool readSensorData(SensorData &data);
+void updateDisplay(const SensorData &data);
+void sendToThingSpeak(const SensorData &data);
+void checkAlerts(const SensorData &data);
+void displayPage(int page, const SensorData &data);
+void displayAlertPage();
+void handleWiFiReconnection();
+uint8_t calculateCRC8(const uint8_t *data, size_t len);
+
+// Page Variables
+int currentPage = 0;
+unsigned long lastPageSwitchTime = 0;
+bool uartTriggerPageChange = false;
+bool alertTriggered = false;  // Alert Page Flag
+String alertMessages = "";     // Stores Multiple Alerts
+
+void setup() 
+{
+    Serial.begin(115200);
+    Serial2.begin(BAUD_RATE, SERIAL_8N1, RX_PIN, TX_PIN);
+
+    SPI.begin(OLED_CLK, -1, OLED_MOSI, OLED_CS);
+
+    if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_CS)) 
+    {  
+        Serial.println("SSD1306 SPI initialization failed!");
+        while (1);
+    }
+
+    display.clearDisplay();
+    display.setTextSize(1.5); // Increased Font Size
+    display.setTextColor(WHITE);
+    display.setCursor(10, 20);
+    display.println("Initializing...");
+    display.display();
+    delay(1000);
+    display.clearDisplay();
+
+#if ENABLE_MAC_FILTERING
+    esp_wifi_set_mac(WIFI_IF_STA, (uint8_t*)allowedMAC);
+    Serial.println("MAC Address Set for Restricted Network");
+#endif
+
+    WiFi.begin(ssid, password);
+    Serial.print("Connecting to Wi-Fi");
+
+    while (WiFi.status() != WL_CONNECTED) 
+    {
+        delay(500);
+        Serial.print(".");
+    }
+    Serial.println("\nWi-Fi connected!");
+}
+
+void loop() 
+{
+    static unsigned long lastThingSpeakUpdate = 0;
+    SensorData sensorData;
+
+    handleWiFiReconnection();
+
+    if (readSensorData(sensorData)) 
+    {
+        Serial2.flush();  
+        Serial.println("Updating OLED Display...");
+        checkAlerts(sensorData);  // First check for alerts
+
+        if (alertTriggered) 
+        {
+            displayAlertPage();  // Display Alert Page
+            delay(3000);  // Keep alert displayed for 3 seconds
+
+        } 
+        else 
+        {
+            updateDisplay(sensorData);  // Show Normal Pages
+        }
+    }
+    else 
+    {
+        Serial.println("Failed to read sensor data.");
+    }
+
+    // Send Data to ThingSpeak every 5 seconds
+    if (millis() - lastThingSpeakUpdate >= 3000) 
+    {
+        sendToThingSpeak(sensorData);
+        lastThingSpeakUpdate = millis();
+    }
+
+    // Handle Page Switching (Only if No Alerts)
+    if (!alertTriggered && (uartTriggerPageChange || millis() - lastPageSwitchTime >= 5000)) 
+    {
+        currentPage = (currentPage + 1) % 3;  
+        lastPageSwitchTime = millis();
+        uartTriggerPageChange = false;
+        displayPage(currentPage, sensorData);
+    }
+    delay(500);
+}
+// Function to read sensor data from UART
+bool readSensorData(SensorData &data) 
+{
+    if (Serial2.available()) 
+    {
+        String receivedData = Serial2.readStringUntil('\n');
+
+        if (receivedData.startsWith("PAGE="))  
+        {
+            int newPage = receivedData.substring(5).toInt(); // Extract page number
+            if (newPage >= 1 && newPage <= 3)  // Ensure it's a valid page
+            {
+                currentPage = newPage;  // Update the page
+                uartTriggerPageChange = true; // Trigger page update
+                Serial.print("Page update received: ");
+                Serial.println(currentPage);
+            }
+            return false; // This is not sensor data
+        }
+
+        uint8_t receivedCRC;
+        int parsed = sscanf(receivedData.c_str(), "@%f,%f,%f,%f,%f,%f,%f,%hhu,@",
+                            &data.Temperature, &data.Pressure, &data.Humidity,
+                            &data.Co2, &data.NH3, &data.Ethanol, &data.AQI, &receivedCRC);
+        
+        if (parsed == 8 && verifyCRC(receivedData, receivedCRC)) 
+        {
+            Serial2.println("ACK");  
+            return true;
+        }
+        else
+        {
+          return false;
+        }
+    }
+    return false;
+}
+
+uint8_t calculateCRC8(const uint8_t *data, size_t len) 
+{
+    uint8_t crc = CRC8_INIT;
+    for (size_t i = 0; i < len; i++) 
+    {
+        crc ^= data[i];  
+        for (uint8_t j = 0; j < 8; j++) 
+        {
+            if (crc & 0x80)  
+                crc = (crc << 1) ^ CRC8_POLYNOMIAL;
+            else
+                crc <<= 1;
+        }
+    }
+    return crc;
+}
+
+bool verifyCRC(const String &data, uint8_t receivedCRC) 
+{
+    uint8_t computedCRC = calculateCRC8((uint8_t *)data.c_str(), data.length() - 1); 
+    return (computedCRC == receivedCRC);
+}
+
+// Function to update OLED display
+void updateDisplay(const SensorData &data) 
+{
+    displayPage(currentPage, data);
+}
+
+// Function to display pages
+void displayPage(int page, const SensorData &data) 
+{
+    display.clearDisplay();
+    display.setTextSize(2); 
+    display.setCursor(0, 0);
+    
+    if (page == 0) 
+    {
+        display.print("T: "); display.print(data.Temperature); display.println("C");
+        display.print("H: "); display.print(data.Humidity); display.println("%");
+        display.print("P: "); display.print(data.Pressure); display.println("Kp");
+    } 
+    else if (page == 1) 
+    {
+        display.print("CO2:"); display.println(data.Co2); 
+        display.print("NH3: "); display.println(data.NH3); 
+        display.print("Eth: "); display.println(data.Ethanol);
+    } 
+    else if (page == 2) 
+    {
+        display.print("AQI: "); display.print(data.AQI);
+    }
+
+    display.display();
+    Serial.print("Page Changed to: ");
+    Serial.println(page);
+}
+
+// Function to display Alert Page
+void displayAlertPage()
+{
+    display.clearDisplay();
+    display.setTextSize(2);
+    display.setCursor(0, 0);
+    display.println("ALERTS!");
+    
+    display.setTextSize(1);
+    display.setCursor(10, 30);
+    display.println(alertMessages);
+    
+    display.display();
+
+}
+
+
+// Function to send data to ThingSpeak
+void sendToThingSpeak(const SensorData &data) 
+{
+    if (WiFi.status() == WL_CONNECTED) 
+    {
+        HTTPClient http;
+        String url = String(server) + "?api_key=" + apiKey +
+                     "&field1=" + String(data.Temperature) +
+                     "&field2=" + String(data.Humidity) +
+                     "&field3=" + String(data.Pressure) +
+                     "&field4=" + String(data.Co2) +
+                     "&field5=" + String(data.NH3) +
+                     "&field6=" + String(data.Ethanol) +                     
+                     "&field7=" + String(data.AQI);
+
+        http.begin(url);
+        int httpResponseCode = http.GET();
+        http.end();
+    }
+}
+
+
+// Function to check for alerts
+void checkAlerts(const SensorData &data) 
+{
+    alertMessages = "";  
+    alertTriggered = false;  
+
+    if (data.Temperature > TEMP_THRESHOLD) 
+    {
+        alertMessages += "HIGH TEMP!\n";
+        alertTriggered = true;
+    }
+    if (data.Humidity > HUMIDITY_THRESHOLD) 
+    {
+        alertMessages += "HIGH HUMIDITY!\n";
+        alertTriggered = true;
+    }
+    if (data.Co2 > CO2_THRESHOLD) 
+    {
+        alertMessages += "HIGH CO2!\n";
+        alertTriggered = true;
+    }
+    if (data.AQI > AQI_THRESHOLD) 
+    {
+        alertMessages += "BAD AIR QUALITY!\n";
+        alertTriggered = true;
+    }
+    if (alertTriggered) 
+    {
+      
+        Serial.println(" ALERT TRIGGERED ");
+        Serial.println(alertMessages);
+        displayAlertPage();  
+    }
+
+}
+
+// WiFi Reconnection Handler
+void handleWiFiReconnection() 
+{
+    if (WiFi.status() != WL_CONNECTED) 
+    {
+        Serial.println("Reconnecting to Wi-Fi...");
+        WiFi.disconnect();
+        WiFi.reconnect();
+    }
+}

@@ -1,0 +1,16 @@
+../Core/Src/main.c:126:5:main	5
+../Core/Src/main.c:195:6:SystemClock_Config	3
+../Core/Src/main.c:237:13:MX_ADC1_Init	3
+../Core/Src/main.c:289:13:MX_I2C1_Init	2
+../Core/Src/main.c:323:13:MX_UART5_Init	2
+../Core/Src/main.c:354:13:MX_DMA_Init	1
+../Core/Src/main.c:375:13:MX_GPIO_Init	1
+../Core/Src/main.c:412:6:Task_SensorRead	2
+../Core/Src/main.c:447:6:Task_DisplayUpdate	2
+../Core/Src/main.c:468:6:Task_UARTSend	1
+../Core/Src/main.c:500:6:HAL_GPIO_EXTI_Callback	4
+../Core/Src/main.c:517:9:Calculate_CRC8	4
+../Core/Src/main.c:533:7:calculate_ppm	1
+../Core/Src/main.c:548:6:HAL_TIM_PeriodElapsedCallback	2
+../Core/Src/main.c:566:6:Error_Handler	1
+../Core/Src/main.c:585:6:assert_failed	1

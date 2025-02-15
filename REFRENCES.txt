@@ -1,0 +1,12 @@
+1.Display Info 	    :- https://components101.com/displays/oled-display-ssd1306
+		       
+		       
+
+
+2.MQ-135 (GAS SENSOR) :- https://components101.com/sensors/mq135-gas-sensor-for-air-quality
+		       
+3.BME280 (THP SENSOR) :- https://www.dnatechindia.com/bme-280-air-temperature-humidity-barometric-pressure-sensor-module.html
+
+		       https://controllerstech.com/bme280-with-stm32/	 
+
+4.CRC-8 :- https://en.wikipedia.org/wiki/Cyclic_redundancy_check
